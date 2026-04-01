@@ -51,8 +51,6 @@ class LLMRewardCallback(BaseCallback):
                     print(f"Episode {self.episode_count} — LLM scores: {[round(s,2) for s in scores]}")
 
         return True
-
-
 # Create environment
 env = UberDialogueEnv()
 
