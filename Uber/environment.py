@@ -1,73 +1,70 @@
 import gymnasium as gym
 import numpy as np
-import random
 from gymnasium import spaces
 from simulated_user import SimulatedUser, SLOT_VALUES
 
-# Map action numbers to action names
-# SB3 works with numbers (0-7), not strings
 ACTIONS = [
-    "request_pickup",           # 0
-    "request_dropoff",          # 1
-    "request_ridetype",         # 2
-    "request_time",             # 3
-    "request_confirm_pickup",   # 4
-    "request_confirm_dropoff",  # 5
-    "request_confirm_ridetype", # 6
-    "request_confirm_time"      # 7
+    "request_pickup",             # 0
+    "request_dropoff",            # 1
+    "request_ridetype",           # 2
+    "request_time",               # 3
+    "request_passengers",         # 4
+    "request_payment",            # 5
+    "request_confirm_pickup",     # 6
+    "request_confirm_dropoff",    # 7
+    "request_confirm_ridetype",   # 8
+    "request_confirm_time",       # 9
+    "request_confirm_passengers", # 10
+    "request_confirm_payment"     # 11
 ]
 
 class UberDialogueEnv(gym.Env):
     def __init__(self):
         super().__init__()
-
         self.user = SimulatedUser()
+        self.action_names = ACTIONS
 
-        # What SB3 sees: 8 binary values (FILLED and CONF for each slot)
-        self.observation_space = spaces.MultiBinary(8)
+        # 6 slots × 2 flags = 12 binary values
+        self.observation_space = spaces.MultiBinary(12)
 
-        # What SB3 can do: pick one of 8 actions
-        self.action_space = spaces.Discrete(8)
+        # 12 possible actions
+        self.action_space = spaces.Discrete(12)
 
-        self.max_turns = 30  # episode times out after 30 turns
+        self.max_turns = 50
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-
-        # Reset the simulated user with a new random goal
         self.user.reset()
 
-        # Reset the state — nothing filled or confirmed yet
         self.state = {
-            "pickup_filled": 0, "pickup_conf": 0,
-            "dropoff_filled": 0, "dropoff_conf": 0,
-            "ridetype_filled": 0, "ridetype_conf": 0,
-            "time_filled": 0, "time_conf": 0
+            "pickup_filled": 0,     "pickup_conf": 0,
+            "dropoff_filled": 0,    "dropoff_conf": 0,
+            "ridetype_filled": 0,   "ridetype_conf": 0,
+            "time_filled": 0,       "time_conf": 0,
+            "passengers_filled": 0, "passengers_conf": 0,
+            "payment_filled": 0,    "payment_conf": 0,
         }
 
-        # Reset the current values the system has heard
         self.current_values = {
             "pickup": None, "dropoff": None,
-            "ridetype": None, "time": None
+            "ridetype": None, "time": None,
+            "passengers": None, "payment": None
         }
 
         self.turn = 0
-        self.history = []  # will be used later for LLM reward
+        self.history = []
 
         return self._get_obs(), {}
 
     def step(self, action):
-        action_name = ACTIONS[action]
+        action_name = self.action_names[action]
         self.turn += 1
 
-        # Get simulated user response
         user_response = self.user.respond(action_name, self.current_values)
 
-        # Update state based on user response 
-        state_before = self._get_obs().tolist()  # capture BEFORE update
+        state_before = self._get_obs().tolist()
         self._update_state(action_name, user_response)
-        
-        # Log turn for LLM reward later
+
         self.history.append({
             "turn": self.turn,
             "action": action_name,
@@ -75,11 +72,9 @@ class UberDialogueEnv(gym.Env):
             "state": state_before
         })
 
-        # Check if task is complete
         done = self._is_done()
         timeout = self.turn >= self.max_turns
 
-        # Sparse reward
         reward = -5
         if done:
             reward += 500
@@ -87,11 +82,11 @@ class UberDialogueEnv(gym.Env):
         return self._get_obs(), reward, done or timeout, False, {}
 
     def _update_state(self, action_name, user_response):
-        # Handle provide responses — slot gets filled with a random value from goal
+        # CORRECT VALUE responses
         if user_response == "provide_pickup":
             self.current_values["pickup"] = self.user.goal["pickup"]
             self.state["pickup_filled"] = 1
-            self.state["pickup_conf"] = 0  # reset conf when refilled
+            self.state["pickup_conf"] = 0
 
         elif user_response == "provide_dropoff":
             self.current_values["dropoff"] = self.user.goal["dropoff"]
@@ -108,7 +103,48 @@ class UberDialogueEnv(gym.Env):
             self.state["time_filled"] = 1
             self.state["time_conf"] = 0
 
-        # Handle positive confirmations
+        elif user_response == "provide_passengers":
+            self.current_values["passengers"] = self.user.goal["passengers"]
+            self.state["passengers_filled"] = 1
+            self.state["passengers_conf"] = 0
+
+        elif user_response == "provide_payment":
+            self.current_values["payment"] = self.user.goal["payment"]
+            self.state["payment_filled"] = 1
+            self.state["payment_conf"] = 0
+
+        # WRONG VALUE responses
+        elif user_response == "provide_wrong_pickup":
+            self.current_values["pickup"] = self.user._wrong_value("pickup")
+            self.state["pickup_filled"] = 1
+            self.state["pickup_conf"] = 0
+
+        elif user_response == "provide_wrong_dropoff":
+            self.current_values["dropoff"] = self.user._wrong_value("dropoff")
+            self.state["dropoff_filled"] = 1
+            self.state["dropoff_conf"] = 0
+
+        elif user_response == "provide_wrong_ridetype":
+            self.current_values["ridetype"] = self.user._wrong_value("ridetype")
+            self.state["ridetype_filled"] = 1
+            self.state["ridetype_conf"] = 0
+
+        elif user_response == "provide_wrong_time":
+            self.current_values["time"] = self.user._wrong_value("time")
+            self.state["time_filled"] = 1
+            self.state["time_conf"] = 0
+
+        elif user_response == "provide_wrong_passengers":
+            self.current_values["passengers"] = self.user._wrong_value("passengers")
+            self.state["passengers_filled"] = 1
+            self.state["passengers_conf"] = 0
+
+        elif user_response == "provide_wrong_payment":
+            self.current_values["payment"] = self.user._wrong_value("payment")
+            self.state["payment_filled"] = 1
+            self.state["payment_conf"] = 0
+
+        # POSITIVE CONFIRM responses
         elif user_response == "confirm_pos_pickup":
             self.state["pickup_conf"] = 1
 
@@ -121,7 +157,13 @@ class UberDialogueEnv(gym.Env):
         elif user_response == "confirm_pos_time":
             self.state["time_conf"] = 1
 
-        # Handle negative confirmations — slot goes back to empty
+        elif user_response == "confirm_pos_passengers":
+            self.state["passengers_conf"] = 1
+
+        elif user_response == "confirm_pos_payment":
+            self.state["payment_conf"] = 1
+
+        # NEGATIVE CONFIRM responses — reset slot
         elif user_response == "confirm_neg_pickup":
             self.state["pickup_filled"] = 0
             self.state["pickup_conf"] = 0
@@ -142,43 +184,51 @@ class UberDialogueEnv(gym.Env):
             self.state["time_conf"] = 0
             self.current_values["time"] = None
 
+        elif user_response == "confirm_neg_passengers":
+            self.state["passengers_filled"] = 0
+            self.state["passengers_conf"] = 0
+            self.current_values["passengers"] = None
+
+        elif user_response == "confirm_neg_payment":
+            self.state["payment_filled"] = 0
+            self.state["payment_conf"] = 0
+            self.current_values["payment"] = None
+
         # irrelevant — nothing changes
 
     def _is_done(self):
-        # Task is complete when all 4 slots are both filled and confirmed
         return (
-            self.state["pickup_filled"] == 1 and self.state["pickup_conf"] == 1 and
-            self.state["dropoff_filled"] == 1 and self.state["dropoff_conf"] == 1 and
-            self.state["ridetype_filled"] == 1 and self.state["ridetype_conf"] == 1 and
-            self.state["time_filled"] == 1 and self.state["time_conf"] == 1
+            self.state["pickup_filled"] == 1    and self.state["pickup_conf"] == 1 and
+            self.state["dropoff_filled"] == 1   and self.state["dropoff_conf"] == 1 and
+            self.state["ridetype_filled"] == 1  and self.state["ridetype_conf"] == 1 and
+            self.state["time_filled"] == 1      and self.state["time_conf"] == 1 and
+            self.state["passengers_filled"] == 1 and self.state["passengers_conf"] == 1 and
+            self.state["payment_filled"] == 1   and self.state["payment_conf"] == 1
         )
 
     def _get_obs(self):
-        # Return state as numpy array of 8 binary values — this is what SB3 sees
         return np.array([
-            self.state["pickup_filled"],   self.state["pickup_conf"],
-            self.state["dropoff_filled"],  self.state["dropoff_conf"],
-            self.state["ridetype_filled"], self.state["ridetype_conf"],
-            self.state["time_filled"],     self.state["time_conf"]
+            self.state["pickup_filled"],     self.state["pickup_conf"],
+            self.state["dropoff_filled"],    self.state["dropoff_conf"],
+            self.state["ridetype_filled"],   self.state["ridetype_conf"],
+            self.state["time_filled"],       self.state["time_conf"],
+            self.state["passengers_filled"], self.state["passengers_conf"],
+            self.state["payment_filled"],    self.state["payment_conf"],
         ], dtype=np.int8)
 
 
-# ---- Test it ----
 if __name__ == "__main__":
     env = UberDialogueEnv()
     obs, _ = env.reset()
-
     print("User goal:", env.user.goal)
     print("Initial state:", obs)
-    print()
 
-    # Manually take a few actions and see what happens
-    test_actions = [0, 4, 1, 5, 2, 6, 3, 7]  # request then confirm each slot
+    test_actions = [0, 6, 1, 7, 2, 8, 3, 9, 4, 10, 5, 11]
     for action in test_actions:
         obs, reward, done, _, _ = env.step(action)
         print(f"Action: {ACTIONS[action]}")
-        print(f"User response: {env.history[-1]['user_response']}")
-        print(f"State: {obs}  Reward: {reward}  Done: {done}")
+        print(f"User: {env.history[-1]['user_response']}")
+        print(f"State: {obs} | Reward: {reward} | Done: {done}")
         print()
         if done:
             print("Task completed!")

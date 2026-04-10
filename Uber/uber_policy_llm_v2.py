@@ -1,7 +1,9 @@
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
+from stable_baselines3.common.monitor import Monitor
 from environment import UberDialogueEnv
 from llm_reward import get_llm_rewards
+from logging_callback import LoggingCallback
 
 class LLMRewardCallback(BaseCallback):
     """
@@ -51,16 +53,20 @@ class LLMRewardCallback(BaseCallback):
                     print(f"Episode {self.episode_count} — LLM scores: {[round(s,2) for s in scores]}")
 
         return True
-# Create environment
-env = UberDialogueEnv()
+
+
+
+env = Monitor(UberDialogueEnv())
 
 # Create PPO model
 model = PPO("MlpPolicy", env, verbose=1, n_steps=2048)
 
+
+logging_cb = LoggingCallback(f"logs_v2.csv")
+llm_cb = LLMRewardCallback()
 # Train with LLM reward callback
-callback = LLMRewardCallback()
-model.learn(total_timesteps=100000, callback=callback)
+model.learn(total_timesteps=200000, callback=CallbackList([llm_cb, logging_cb]))
 
 # Save
-model.save("uber_policy_llm_v2")
-print("Training done!")
+model.save(f"uber_policy_llm_v2")
+print(f"Training done!")
