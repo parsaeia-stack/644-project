@@ -15,11 +15,11 @@ class HybridLLMRewardCallback(LLMRewardCallback):
     def _on_step(self):
         for i, done in enumerate(self.locals["dones"]):
             if done:
-                env = self.training_env.envs[i].unwrapped
-                timeout = env.turn >= env.max_turns
+                info = self.locals["infos"][i]
+                timeout = bool(info.get("episode_timeout", False))
                 if not timeout:
                     self.episode_count += 1
-                    history = env.history
+                    history = info.get("episode_history", [])
                     if len(history) == 0:
                         continue
                     try:

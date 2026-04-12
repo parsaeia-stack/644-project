@@ -72,14 +72,32 @@ class UberDialogueEnv(gym.Env):
             "state": state_before
         })
 
-        done = self._is_done()
-        timeout = self.turn >= self.max_turns
+        success = self._is_done()
+        timeout = self.turn >= self.max_turns and not success
 
         reward = -5
-        if done:
+        if success:
             reward += 500
 
-        return self._get_obs(), reward, done or timeout, False, {}
+        info = {
+            "turn": self.turn,
+            "action": action_name,
+            "user_response": user_response,
+            "success": success,
+            "timeout": timeout,
+            "sparse_reward": float(reward),
+        }
+        if success or timeout:
+            info.update(
+                {
+                    "episode_history": [dict(turn_data) for turn_data in self.history],
+                    "episode_success": success,
+                    "episode_timeout": timeout,
+                    "episode_sparse_rewards": self._build_sparse_episode_rewards(success),
+                }
+            )
+
+        return self._get_obs(), reward, success or timeout, False, info
 
     def _update_state(self, action_name, user_response):
         # CORRECT VALUE responses
@@ -205,6 +223,12 @@ class UberDialogueEnv(gym.Env):
             self.state["passengers_filled"] == 1 and self.state["passengers_conf"] == 1 and
             self.state["payment_filled"] == 1   and self.state["payment_conf"] == 1
         )
+
+    def _build_sparse_episode_rewards(self, success):
+        rewards = [-5.0] * len(self.history)
+        if success and rewards:
+            rewards[-1] += 500.0
+        return rewards
 
     def _get_obs(self):
         return np.array([

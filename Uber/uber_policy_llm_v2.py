@@ -18,11 +18,9 @@ class LLMRewardCallback(BaseCallback):
         # Check if any environment just finished an episode
         for i, done in enumerate(self.locals["dones"]):
             if done:
+                info = self.locals["infos"][i]
                 self.episode_count += 1
-                env = self.training_env.envs[i].unwrapped
-
-                # Get the episode history
-                history = env.history
+                history = info.get("episode_history", [])
 
                 if len(history) == 0:
                     continue
