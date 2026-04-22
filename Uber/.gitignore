@@ -1,0 +1,7 @@
+
+*.zip
+test_results.json
+__pycache__/
+*.pyc
+env/
+logs_*.csv
